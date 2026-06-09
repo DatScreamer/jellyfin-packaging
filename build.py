@@ -61,16 +61,24 @@ def _determine_framework_versions():
     for submodule in this_repo.submodules:
         if submodule.name in configurations["frameworks"].keys():
             for framework_arg in configurations["frameworks"][submodule.name].keys():
-                framework_args[framework_arg] = None
-                def sort_versions(input_dict):
-                    return dict(sorted(input_dict.items(), key=lambda item: Version(str(item[1]))))
-                for commit_hash in sort_versions(configurations["frameworks"][submodule.name][framework_arg]):
-                    try:
-                        commit = submodule.module().commit(commit_hash)
-                        if commit in submodule.module().iter_commits('HEAD'):
-                            framework_args[framework_arg] = configurations["frameworks"][submodule.name][framework_arg][commit_hash]
-                    except ValueError:
-                        continue
+                # Check for environment variable override first
+                env_override = getenv(f"JF_BUILD_ARG_{framework_arg}")
+                if env_override is not None:
+                    framework_args[framework_arg] = env_override
+                    log(f"  * {framework_arg}: {env_override} (from JF_BUILD_ARG_{framework_arg} env)")
+
+                # Fall back to commit-based detection
+                else:
+                    framework_args[framework_arg] = None
+                    def sort_versions(input_dict):
+                        return dict(sorted(input_dict.items(), key=lambda item: Version(str(item[1]))))
+                    for commit_hash in sort_versions(configurations["frameworks"][submodule.name][framework_arg]):
+                        try:
+                            commit = submodule.module().commit(commit_hash)
+                            if commit in submodule.module().iter_commits('HEAD'):
+                                framework_args[framework_arg] = configurations["frameworks"][submodule.name][framework_arg][commit_hash]
+                        except ValueError:
+                            continue
 
     log(f"Determined the following framework versions based on current HEAD values:")
     for k, v in framework_args.items():

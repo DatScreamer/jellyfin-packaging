@@ -48,6 +48,7 @@ env:
   CUSTOM_JELLYFIN_WEB_REF: ${{ github.event.inputs.jellyfin_web_ref || 'master' }}
   CUSTOM_DEBIAN_RELEASE: ${{ github.event.inputs.debian_release || 'trixie' }}
   CUSTOM_ARCHITECTURE: ${{ github.event.inputs.architecture || 'amd64' }}
+  JF_BUILD_ARG_NODEJS_VERSION: "24"
 
 jobs:
   build:
