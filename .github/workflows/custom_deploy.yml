@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 env:
-  JELLYFIN_PACKAGE_SHARE_PATH: "/mnt/jellyfin-packages"
+  JELLYFIN_PACKAGE_SHARE_PATH: "/mnt/development-build-artifacts"
   JELLYFIN_DEPLOY_HOST: "jf.lan"
   JELLYFIN_DEPLOY_USER: "root"
   JELLYFIN_DEPLOY_SSH_KEY: "/opt/actions-runner/.ssh/jellyfin-deploy"
@@ -54,8 +54,8 @@ jobs:
           release_dir="${JELLYFIN_PACKAGE_SHARE_PATH}/custom/${short_sha}"
 
           install -d -m 0775 "${release_dir}"
-          install -m 0664 ./deb/*.deb "${release_dir}/"
-          install -m 0664 ./deb/manifest.txt "${release_dir}/"
+          install -m 0664 ./deb/out/debian/*.deb "${release_dir}/"
+          install -m 0664 ./deb/out/custom/manifest.txt "${release_dir}/"
           ln -sfn "${release_dir}" "${JELLYFIN_PACKAGE_SHARE_PATH}/custom/latest"
 
           echo "release_dir=${release_dir}" >> "${GITHUB_OUTPUT}"
@@ -80,7 +80,7 @@ jobs:
 
           ssh "${ssh_opts[@]}" "${ssh_target}" \
             "rm -rf '${remote_tmp}' && mkdir -p '${remote_tmp}'"
-          scp "${ssh_opts[@]}" ./deb/*.deb \
+          scp "${ssh_opts[@]}" ./deb/out/debian/*.deb \
             "${ssh_target}:${remote_tmp}/"
 
           # Install package preserving Ansible-managed conffiles,
