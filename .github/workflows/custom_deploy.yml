@@ -41,8 +41,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Downloaded artifact structure ==="
-          find . -maxdepth 4 -type f -name '*.deb' -o -name 'manifest.txt' -ls
+          find . -maxdepth 4 -type f \( -name '*.deb' -o -name 'manifest.txt' \) -ls
           echo "====================================="
+          echo "=== All files in workspace ==="
+          ls -laR out/ 2>&1 || echo "No out/ directory"
 
       - name: Verify runner SMB package share
         shell: bash
@@ -63,7 +65,6 @@ jobs:
           install -d -m 0775 "${release_dir}"
           install -m 0664 out/debian/*.deb "${release_dir}/"
           install -m 0664 out/custom/manifest.txt "${release_dir}/"
-          ln -sfn "${release_dir}" "${JELLYFIN_PACKAGE_SHARE_PATH}/custom/latest"
 
           echo "release_dir=${release_dir}" >> "${GITHUB_OUTPUT}"
 
