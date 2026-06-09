@@ -105,7 +105,7 @@ jobs:
             debian \
             "${CUSTOM_ARCHITECTURE}" \
             "${CUSTOM_DEBIAN_RELEASE}"
-          sudo chown --recursive "$USER:$USER" out/debian
+          sudo chown --recursive "$USER:$USER" out/
 
       - name: Write build manifest
         shell: bash
