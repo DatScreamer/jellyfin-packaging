@@ -84,10 +84,10 @@ jobs:
           "${JELLYFIN_DEPLOY_SSH_WRAPPER}" \
             "rm -rf '${remote_tmp}' && mkdir -p '${remote_tmp}'"
 
-          # Transfer .deb files via tar over SSH (SCP not compatible with wrapper)
+          # Transfer .deb files via tar over SSH, stripping the out/debian/ prefix
           tar czf - out/debian/*.deb \
             | "${JELLYFIN_DEPLOY_SSH_WRAPPER}" \
-              "tar xzf - -C '${remote_tmp}'"
+              "tar xzf - --strip-components=2 -C '${remote_tmp}'"
 
           # Install package preserving Ansible-managed conffiles,
           # then reconcile system state after the package update
