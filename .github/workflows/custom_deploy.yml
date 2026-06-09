@@ -20,7 +20,7 @@ permissions:
 env:
   JELLYFIN_PACKAGE_SHARE_PATH: "/mnt/development-build-artifacts"
   JELLYFIN_DEPLOY_SSH_WRAPPER: "/opt/actions-runner/.ssh/jellyfin-deploy-ssh"
-  GITHUB_RUNNER_DEPLOY_SSH_TARGET_HOST: "jf.lan"
+  GITHUB_RUNNER_DEPLOY_SSH_TARGET_HOST: "10.0.50.25"
   GITHUB_RUNNER_DEPLOY_SSH_USER: "github-runner-deploy"
 
 jobs:
