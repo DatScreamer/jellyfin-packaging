@@ -37,6 +37,14 @@ jobs:
           github-token: ${{ github.token }}
           path: ./deb
 
+      - name: Inspect downloaded artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          find ./deb -type f -ls 2>&1 || echo "No files found in ./deb"
+          echo "---"
+          ls -laR ./deb/ 2>&1 || echo "Directory ./deb does not exist"
+
       - name: Verify runner SMB package share
         shell: bash
         run: |
