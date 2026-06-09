@@ -149,3 +149,11 @@ jobs:
                 jellyfin_web_sha: '${{ steps.revisions.outputs.web_sha }}'
               }
             })
+
+      - name: Clean up root-owned build artifacts
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf build/
+          sudo chown --recursive "$USER:$USER" .
