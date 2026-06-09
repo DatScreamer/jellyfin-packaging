@@ -1,0 +1,151 @@
+name: Custom Jellyfin Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      jellyfin_version:
+        description: "Package version passed to build.py"
+        required: false
+        default: "auto"
+      jellyfin_release_ref:
+        description: "Jellyfin server release tag or master"
+        required: false
+        default: "master"
+      jellyfin_web_ref:
+        description: "jellyfin-web branch, tag, or SHA"
+        required: false
+        default: "master"
+      jellyfin_web_repository:
+        description: "jellyfin-web repository URL"
+        required: false
+        default: "https://github.com/DatScreamer/jellyfin-web.git"
+      debian_release:
+        description: "Debian release codename"
+        required: false
+        default: "trixie"
+      architecture:
+        description: "Package architecture"
+        required: false
+        default: "amd64"
+  push:
+    paths:
+      - ".github/workflows/custom_build.yml"
+      - ".github/workflows/custom_deploy.yml"
+      - ".gitmodules"
+      - "build.py"
+      - "build.yaml"
+      - "checkout.py"
+      - "debian/**"
+
+permissions:
+  actions: write
+  contents: read
+
+env:
+  JELLYFIN_WEB_REPOSITORY: ${{ github.event.inputs.jellyfin_web_repository || 'https://github.com/DatScreamer/jellyfin-web.git' }}
+  CUSTOM_JELLYFIN_VERSION: ${{ github.event.inputs.jellyfin_version || 'auto' }}
+  CUSTOM_JELLYFIN_RELEASE_REF: ${{ github.event.inputs.jellyfin_release_ref || 'master' }}
+  CUSTOM_JELLYFIN_WEB_REF: ${{ github.event.inputs.jellyfin_web_ref || 'master' }}
+  CUSTOM_DEBIAN_RELEASE: ${{ github.event.inputs.debian_release || 'trixie' }}
+  CUSTOM_ARCHITECTURE: ${{ github.event.inputs.architecture || 'amd64' }}
+
+jobs:
+  build:
+    name: Build Debian package
+    runs-on: [self-hosted, linux, personal, jellyfin-packaging]
+
+    steps:
+      - name: Checkout packaging repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Prepare Jellyfin sources
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git submodule set-url jellyfin-web "${JELLYFIN_WEB_REPOSITORY}"
+          git submodule sync --recursive
+          ./checkout.py "${CUSTOM_JELLYFIN_RELEASE_REF}"
+
+          git -C jellyfin-web remote set-url origin "${JELLYFIN_WEB_REPOSITORY}"
+          git -C jellyfin-web fetch --depth=1 origin "${CUSTOM_JELLYFIN_WEB_REF}"
+          git -C jellyfin-web checkout --force FETCH_HEAD
+
+      - name: Capture source revisions
+        id: revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          web_sha="$(git -C jellyfin-web rev-parse HEAD)"
+          server_sha="$(git -C jellyfin-server rev-parse HEAD)"
+          short_web_sha="${web_sha:0:12}"
+
+          {
+            echo "web_sha=${web_sha}"
+            echo "web_short_sha=${short_web_sha}"
+            echo "server_sha=${server_sha}"
+            echo "artifact_name=jellyfin-debian-${CUSTOM_DEBIAN_RELEASE}-${CUSTOM_ARCHITECTURE}-${short_web_sha}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Install host build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes python3-git python3-yaml
+
+      - name: Build Debian packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo --preserve-env ./build.py \
+            "${CUSTOM_JELLYFIN_VERSION}" \
+            debian \
+            "${CUSTOM_ARCHITECTURE}" \
+            "${CUSTOM_DEBIAN_RELEASE}"
+          sudo chown --recursive "$USER:$USER" out/debian
+
+      - name: Write build manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/custom
+          cat > out/custom/manifest.txt <<EOF
+          packaging_repository=${GITHUB_REPOSITORY}
+          packaging_sha=${GITHUB_SHA}
+          jellyfin_version=${CUSTOM_JELLYFIN_VERSION}
+          jellyfin_release_ref=${CUSTOM_JELLYFIN_RELEASE_REF}
+          jellyfin_server_sha=${{ steps.revisions.outputs.server_sha }}
+          jellyfin_web_repository=${JELLYFIN_WEB_REPOSITORY}
+          jellyfin_web_ref=${CUSTOM_JELLYFIN_WEB_REF}
+          jellyfin_web_sha=${{ steps.revisions.outputs.web_sha }}
+          debian_release=${CUSTOM_DEBIAN_RELEASE}
+          architecture=${CUSTOM_ARCHITECTURE}
+          EOF
+
+      - name: Upload Debian packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.revisions.outputs.artifact_name }}
+          path: |
+            out/debian/*.deb
+            out/custom/manifest.txt
+          if-no-files-found: error
+
+      - name: Trigger custom deploy
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'custom_deploy.yml',
+              ref: context.ref,
+              inputs: {
+                artifact_name: '${{ steps.revisions.outputs.artifact_name }}',
+                run_id: String(context.runId),
+                jellyfin_web_sha: '${{ steps.revisions.outputs.web_sha }}'
+              }
+            })

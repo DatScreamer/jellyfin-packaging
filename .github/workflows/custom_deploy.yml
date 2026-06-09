@@ -1,0 +1,97 @@
+name: Custom Jellyfin Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_name:
+        description: "Build artifact name to deploy"
+        required: true
+      run_id:
+        description: "Workflow run ID that produced the artifact"
+        required: true
+      jellyfin_web_sha:
+        description: "jellyfin-web commit included in the package"
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  JELLYFIN_PACKAGE_SHARE_PATH: "/mnt/jellyfin-packages"
+  JELLYFIN_DEPLOY_HOST: "jf.lan"
+  JELLYFIN_DEPLOY_USER: "root"
+  JELLYFIN_DEPLOY_SSH_KEY: "/opt/actions-runner/.ssh/jellyfin-deploy"
+
+jobs:
+  deploy:
+    name: Publish and deploy Debian package
+    runs-on: [self-hosted, linux, personal, jellyfin-packaging]
+
+    steps:
+      - name: Download built packages
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: ./deb
+
+      - name: Verify runner SMB package share
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "${JELLYFIN_PACKAGE_SHARE_PATH}"
+          mountpoint -q "${JELLYFIN_PACKAGE_SHARE_PATH}"
+
+      - name: Publish packages to SMB share
+        id: publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          short_sha="${{ inputs.jellyfin_web_sha }}"
+          short_sha="${short_sha:0:12}"
+          release_dir="${JELLYFIN_PACKAGE_SHARE_PATH}/custom/${short_sha}"
+
+          install -d -m 0775 "${release_dir}"
+          install -m 0664 ./deb/*.deb "${release_dir}/"
+          install -m 0664 ./deb/manifest.txt "${release_dir}/"
+          ln -sfn "${release_dir}" "${JELLYFIN_PACKAGE_SHARE_PATH}/custom/latest"
+
+          echo "release_dir=${release_dir}" >> "${GITHUB_OUTPUT}"
+
+      - name: Deploy packages to Jellyfin host
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! -s "${JELLYFIN_DEPLOY_SSH_KEY}" ]]; then
+            echo "Missing deploy SSH key at ${JELLYFIN_DEPLOY_SSH_KEY}" >&2
+            exit 1
+          fi
+
+          remote_tmp="/tmp/${{ inputs.artifact_name }}"
+          ssh_opts=(
+            -i "${JELLYFIN_DEPLOY_SSH_KEY}"
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=accept-new
+          )
+          ssh_target="${JELLYFIN_DEPLOY_USER}@${JELLYFIN_DEPLOY_HOST}"
+
+          ssh "${ssh_opts[@]}" "${ssh_target}" \
+            "rm -rf '${remote_tmp}' && mkdir -p '${remote_tmp}'"
+          scp "${ssh_opts[@]}" ./deb/*.deb \
+            "${ssh_target}:${remote_tmp}/"
+
+          # Install package preserving Ansible-managed conffiles,
+          # then reconcile system state after the package update
+          ssh "${ssh_opts[@]}" "${ssh_target}" "
+            set -e
+            DEBIAN_FRONTEND=noninteractive apt-get install \
+              --yes -o Dpkg::Options::=--force-confold \
+              '${remote_tmp}'/*.deb
+            systemctl daemon-reload
+            systemctl try-reload-or-restart nginx    || true
+            systemctl try-reload-or-restart vault-agent || true
+            systemctl restart jellyfin
+          "
