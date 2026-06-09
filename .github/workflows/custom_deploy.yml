@@ -19,9 +19,9 @@ permissions:
 
 env:
   JELLYFIN_PACKAGE_SHARE_PATH: "/mnt/development-build-artifacts"
-  JELLYFIN_DEPLOY_HOST: "jf.lan"
-  JELLYFIN_DEPLOY_USER: "root"
-  JELLYFIN_DEPLOY_SSH_KEY: "/opt/actions-runner/.ssh/jellyfin-deploy"
+  JELLYFIN_DEPLOY_SSH_WRAPPER: "/opt/actions-runner/.ssh/jellyfin-deploy-ssh"
+  GITHUB_RUNNER_DEPLOY_SSH_TARGET_HOST: "jf.lan"
+  GITHUB_RUNNER_DEPLOY_SSH_USER: "github-runner-deploy"
 
 jobs:
   deploy:
@@ -73,33 +73,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! -s "${JELLYFIN_DEPLOY_SSH_KEY}" ]]; then
-            echo "Missing deploy SSH key at ${JELLYFIN_DEPLOY_SSH_KEY}" >&2
+          if [[ ! -x "${JELLYFIN_DEPLOY_SSH_WRAPPER}" ]]; then
+            echo "Missing deploy SSH wrapper at ${JELLYFIN_DEPLOY_SSH_WRAPPER}" >&2
             exit 1
           fi
 
           remote_tmp="/tmp/${{ inputs.artifact_name }}"
-          ssh_opts=(
-            -i "${JELLYFIN_DEPLOY_SSH_KEY}"
-            -o IdentitiesOnly=yes
-            -o StrictHostKeyChecking=accept-new
-          )
-          ssh_target="${JELLYFIN_DEPLOY_USER}@${JELLYFIN_DEPLOY_HOST}"
 
-          ssh "${ssh_opts[@]}" "${ssh_target}" \
+          # Create remote temp directory
+          "${JELLYFIN_DEPLOY_SSH_WRAPPER}" \
             "rm -rf '${remote_tmp}' && mkdir -p '${remote_tmp}'"
-          scp "${ssh_opts[@]}" out/debian/*.deb \
-            "${ssh_target}:${remote_tmp}/"
+
+          # Transfer .deb files via tar over SSH (SCP not compatible with wrapper)
+          tar czf - out/debian/*.deb \
+            | "${JELLYFIN_DEPLOY_SSH_WRAPPER}" \
+              "tar xzf - -C '${remote_tmp}'"
 
           # Install package preserving Ansible-managed conffiles,
           # then reconcile system state after the package update
-          ssh "${ssh_opts[@]}" "${ssh_target}" "
+          "${JELLYFIN_DEPLOY_SSH_WRAPPER}" "
             set -e
-            DEBIAN_FRONTEND=noninteractive apt-get install \
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install \
               --yes -o Dpkg::Options::=--force-confold \
               '${remote_tmp}'/*.deb
-            systemctl daemon-reload
-            systemctl try-reload-or-restart nginx    || true
-            systemctl try-reload-or-restart vault-agent || true
-            systemctl restart jellyfin
+            sudo systemctl daemon-reload
+            sudo systemctl try-reload-or-restart nginx    || true
+            sudo systemctl try-reload-or-restart vault-agent || true
+            sudo systemctl restart jellyfin
           "
