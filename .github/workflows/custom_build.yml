@@ -107,6 +107,19 @@ jobs:
             "${CUSTOM_DEBIAN_RELEASE}"
           sudo chown --recursive "$USER:$USER" out/
 
+      - name: Verify Debian packages were produced
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=$(ls -1 out/debian/*.deb 2>/dev/null | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "ERROR: No .deb files found in out/debian/. The Docker build likely failed."
+            echo "Check the 'Build Debian packages' step logs for Docker errors."
+            exit 1
+          fi
+          echo "Found $count .deb package(s):"
+          ls -lh out/debian/*.deb
+
       - name: Write build manifest
         shell: bash
         run: |

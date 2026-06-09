@@ -35,15 +35,14 @@ jobs:
           name: ${{ inputs.artifact_name }}
           run-id: ${{ inputs.run_id }}
           github-token: ${{ github.token }}
-          path: ./deb
 
       - name: Inspect downloaded artifact
         shell: bash
         run: |
           set -euo pipefail
-          find ./deb -type f -ls 2>&1 || echo "No files found in ./deb"
-          echo "---"
-          ls -laR ./deb/ 2>&1 || echo "Directory ./deb does not exist"
+          echo "=== Downloaded artifact structure ==="
+          find . -maxdepth 4 -type f -name '*.deb' -o -name 'manifest.txt' -ls
+          echo "====================================="
 
       - name: Verify runner SMB package share
         shell: bash
@@ -62,8 +61,8 @@ jobs:
           release_dir="${JELLYFIN_PACKAGE_SHARE_PATH}/custom/${short_sha}"
 
           install -d -m 0775 "${release_dir}"
-          install -m 0664 ./deb/out/debian/*.deb "${release_dir}/"
-          install -m 0664 ./deb/out/custom/manifest.txt "${release_dir}/"
+          install -m 0664 out/debian/*.deb "${release_dir}/"
+          install -m 0664 out/custom/manifest.txt "${release_dir}/"
           ln -sfn "${release_dir}" "${JELLYFIN_PACKAGE_SHARE_PATH}/custom/latest"
 
           echo "release_dir=${release_dir}" >> "${GITHUB_OUTPUT}"
@@ -88,7 +87,7 @@ jobs:
 
           ssh "${ssh_opts[@]}" "${ssh_target}" \
             "rm -rf '${remote_tmp}' && mkdir -p '${remote_tmp}'"
-          scp "${ssh_opts[@]}" ./deb/out/debian/*.deb \
+          scp "${ssh_opts[@]}" out/debian/*.deb \
             "${ssh_target}:${remote_tmp}/"
 
           # Install package preserving Ansible-managed conffiles,
